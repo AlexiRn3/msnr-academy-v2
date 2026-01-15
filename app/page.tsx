@@ -1,65 +1,86 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect } from "react";
+import PricingSection from "@/components/PricingSection";
+import Footer from "@/components/Footer";
+import Coaches from "@/components/Coaches"; // On importe le nouveau composant
 
 export default function Home() {
+  
+  useEffect(() => {
+    // Le moteur d'animation (Observer)
+    const observerOptions = {
+      root: document.getElementById("main-scroller"),
+      threshold: 0.1,
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("active");
+        }
+      });
+    }, observerOptions);
+
+    // Petit délai pour laisser le temps aux composants enfants (Coaches, Footer...) de se charger
+    setTimeout(() => {
+        const revealElements = document.querySelectorAll(".reveal");
+        revealElements.forEach((el) => observer.observe(el));
+    }, 100);
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="snap-container h-screen overflow-y-scroll snap-y snap-mandatory scroll-smooth" id="main-scroller">
+      
+      {/* --- SECTION 1: HERO (Reste ici pour l'instant) --- */}
+      <section className="snap-section h-screen snap-start relative w-full overflow-hidden flex flex-col justify-center bg-white" id="home">
+        <div className="absolute inset-0 z-0 opacity-10 pointer-events-none">
+          <img
+            src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop"
+            alt="Abstract Swiss Background"
+            className="w-full h-full object-cover grayscale"
+          />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="container mx-auto px-6 z-10 h-full flex flex-col justify-center">
+          <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 lg:col-span-10">
+              <h1 className="text-swiss-huge font-black uppercase mb-6 reveal text-neutral-900">
+                Market<br />
+                <span className="text-red-600">Logic</span><br />
+                Refined
+              </h1>
+            </div>
+            <div className="col-span-12 lg:col-span-5 lg:col-start-8 mt-8 reveal delay-200">
+              <div className="swiss-grid-line mb-6 pt-4 border-t border-black/10"></div>
+              <p className="text-lg md:text-xl leading-relaxed font-light text-neutral-600">
+                Stop guessing. Start understanding. MSNR Academy deconstructs the "Why" behind price movement with the precision of Malaysian SnR philosophy.
+                <span className="block mt-4 font-medium text-black">
+                  A modern approach to line charts, storylines, and liquidity.
+                </span>
+              </p>
+            </div>
+          </div>
         </div>
-      </main>
-    </div>
+
+        <div className="absolute bottom-10 left-6 animate-bounce">
+          <span className="material-symbols-outlined text-3xl opacity-50 text-black">
+            keyboard_arrow_down
+          </span>
+        </div>
+      </section>
+
+      {/* --- SECTION 2: COACHES --- */}
+      <Coaches />
+
+      {/* --- SECTION 3: PRICING --- */}
+      <PricingSection />
+
+      {/* --- SECTION 4: FOOTER --- */}
+      <Footer />
+
+    </main>
   );
 }
