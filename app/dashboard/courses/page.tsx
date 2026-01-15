@@ -1,41 +1,61 @@
 import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
-import { deleteCourse } from "./actions"; // On garde deleteCourse ici
+import { redirect } from "next/navigation";
 
 export default async function CoursesPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. Récupérer le rôle
+  if (!user) return redirect("/login");
+
+  // 1. Récupérer le profil pour le rôle (Admin ou User)
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
-    .eq("id", user?.id)
+    .eq("id", user.id)
     .single();
 
   const isAdmin = profile?.role === "admin";
 
-  // 2. Récupérer les cours
-  // Si admin : tout voir. Si user : voir seulement les publiés.
-  let query = supabase.from("courses").select("*, lessons(count)").order("created_at", { ascending: false });
-  
-  if (!isAdmin) {
-    query = query.eq("is_published", true);
-  }
+  // 2. Récupérer tous les cours publiés (triés par niveau pour la logique)
+  // Assurez-vous d'avoir ajouté la colonne "level" dans votre table courses via SQL
+  // Par défaut, si "level" est null, on considère que c'est niveau 1
+  const { data: courses } = await supabase
+    .from("courses")
+    .select("*")
+    .eq("is_published", true)
+    .order("level", { ascending: true }); // Important pour la logique 1 -> 2 -> 3
 
-  const { data: courses } = await query;
+  // 3. Récupérer les achats de l'utilisateur
+  const { data: purchases } = await supabase
+    .from("purchases")
+    .select("course_id")
+    .eq("user_id", user.id);
+
+  const purchasedCourseIds = new Set(purchases?.map((p) => p.course_id));
+
+  // 4. Calculer le "Niveau Maximum Possédé"
+  // Si j'ai acheté le cours de niveau 2, alors maxOwnedLevel = 2.
+  let maxOwnedLevel = 0;
+  courses?.forEach((course) => {
+    // On suppose que course.level existe. Sinon on fallback à 1.
+    const level = course.level || 1;
+    if (purchasedCourseIds.has(course.id)) {
+      if (level > maxOwnedLevel) maxOwnedLevel = level;
+    }
+  });
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 p-6">
       
       {/* --- EN-TÊTE --- */}
       <div className="flex justify-between items-end border-b border-neutral-200 pb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tighter text-black">
-            {isAdmin ? "Course Management" : "My Curriculum"}
+            {isAdmin ? "Gestion des Cours" : "Mon Curriculum"}
           </h1>
           <p className="text-neutral-500">
-            {isAdmin ? "Create, edit and manage your content." : "Master the logic step by step."}
+            {isAdmin ? "Créez et gérez votre contenu." : "Maîtrisez la logique étape par étape."}
           </p>
         </div>
         
@@ -46,110 +66,88 @@ export default async function CoursesPage() {
                 className="bg-black text-white px-4 py-2 text-sm font-bold rounded hover:bg-neutral-800 transition-colors flex items-center gap-2"
             >
                 <span className="material-symbols-outlined text-sm">add</span>
-                Add Course
+                Ajouter un Cours
             </Link>
         )}
       </div>
 
-      {/* --- VUE ADMIN : TABLEAU DE GESTION --- */}
-      {isAdmin ? (
-        <div className="bg-white border border-neutral-200 rounded-lg overflow-hidden">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-neutral-50 border-b border-neutral-200 text-neutral-500">
-              <tr>
-                <th className="px-6 py-3 font-medium text-xs uppercase">Course Title</th>
-                <th className="px-6 py-3 font-medium text-xs uppercase">Status</th>
-                <th className="px-6 py-3 font-medium text-xs uppercase">Content</th>
-                <th className="px-6 py-3 font-medium text-xs uppercase text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {courses?.map((course) => (
-                <tr key={course.id} className="hover:bg-neutral-50 group">
-                  <td className="px-6 py-4 font-medium text-neutral-900">
-                    {course.title}
-                    <div className="text-xs text-neutral-400 font-mono mt-1">/{course.slug}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${
-                      course.is_published 
-                        ? "bg-green-100 text-green-700" 
-                        : "bg-neutral-100 text-neutral-500"
-                    }`}>
-                      {course.is_published ? "Published" : "Draft"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-neutral-500">
-                    {course.lessons?.[0]?.count || 0} lessons
-                  </td>
-                  <td className="px-6 py-4 text-right flex justify-end gap-2">
-                    
-                    {/* 1. VIEW (User view) */}
-                    <Link href={`/dashboard/courses/${course.slug}`} className="p-2 text-neutral-400 hover:text-black hover:bg-neutral-200 rounded transition-colors" title="Preview as Student">
-                        <span className="material-symbols-outlined text-lg">visibility</span>
-                    </Link>
+      {/* --- LISTE DES COURS (GRID) --- */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {courses?.map((course) => {
+          const level = course.level || 1;
+          const isOwned = purchasedCourseIds.has(course.id);
+          
+          // --- LOGIQUE D'ÉTAT ---
+          let status = "locked"; // locked, buyable, access, included
+          
+          if (isAdmin) {
+             status = "access"; // L'admin voit tout
+          } else if (isOwned) {
+            status = "access";
+          } else if (level <= maxOwnedLevel) {
+            status = "included"; // C'est un niveau inférieur à ce que j'ai déjà payé => Inclus
+          } else if (level === maxOwnedLevel + 1) {
+            status = "buyable"; // C'est le niveau juste après le mien => Je peux acheter
+          } else if (maxOwnedLevel === 0 && level === 1) {
+            status = "buyable"; // Je n'ai rien, je peux acheter le niveau 1
+          }
 
-                    {/* 2. EDIT (Admin view) - AJOUTÉ ICI */}
-                    <Link href={`/dashboard/admin/courses/${course.id}`} className="p-2 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Edit Content">
-                        <span className="material-symbols-outlined text-lg">edit_square</span>
-                    </Link>
-                    
-                    {/* 3. DELETE */}
-                    <form action={deleteCourse}>
-                        <input type="hidden" name="courseId" value={course.id} />
-                        <button className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Delete Course">
-                            <span className="material-symbols-outlined text-lg">delete</span>
-                        </button>
-                    </form>
-                  </td>
-                </tr>
-              ))}
-              {courses?.length === 0 && (
-                <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-neutral-500">No courses yet. Click "Add Course" to start.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        
-      /* --- VUE USER : GRILLE DES COURS (Inchangée) --- */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {courses?.map((course) => (
-                <Link key={course.id} href={`/dashboard/courses/${course.slug}`} className="group block h-full">
-                    <div className="border border-neutral-200 bg-white h-full hover:border-red-600 hover:shadow-lg transition-all duration-300 flex flex-col">
-                        <div className="h-48 bg-neutral-100 relative overflow-hidden flex items-center justify-center">
-                            {course.image_url ? (
-                                <img src={course.image_url} alt={course.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                            ) : (
-                                <span className="material-symbols-outlined text-4xl text-neutral-300 group-hover:text-red-500 transition-colors">school</span>
-                            )}
-                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors"></div>
-                        </div>
-                        
-                        <div className="p-6 flex flex-col flex-1">
-                            <h3 className="text-xl font-bold mb-2 text-neutral-900 group-hover:text-red-600 transition-colors">
-                                {course.title}
-                            </h3>
-                            <p className="text-sm text-neutral-500 mb-6 line-clamp-2">
-                                {course.description || "Master the logic behind the charts."}
-                            </p>
-                            
-                            <div className="mt-auto flex items-center justify-between pt-4 border-t border-neutral-100">
-                                <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
-                                    {course.lessons?.[0]?.count || 0} Lessons
-                                </span>
-                                <span className="text-xs font-bold text-black flex items-center gap-1 group-hover:gap-2 transition-all">
-                                    START WATCHING <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </Link>
-            ))}
-        </div>
-      )}
+          // Si c'est inclus, on donne l'accès direct
+          const canAccess = status === "access" || status === "included";
+
+          return (
+            <div key={course.id} className="border rounded-lg p-4 flex flex-col gap-4 bg-white shadow-sm hover:shadow-md transition-shadow">
+              {/* Image */}
+              <div className="aspect-video bg-neutral-100 rounded-md relative overflow-hidden flex items-center justify-center">
+                {course.image_url ? (
+                    <img src={course.image_url} alt={course.title} className="w-full h-full object-cover" />
+                ) : (
+                    <span className="material-symbols-outlined text-4xl text-neutral-300">image</span>
+                )}
+                {/* Badge de statut */}
+                <div className="absolute top-2 right-2">
+                    {status === "included" && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full font-bold">Inclus</span>}
+                    {status === "locked" && <span className="bg-neutral-200 text-neutral-600 text-xs px-2 py-1 rounded-full font-bold">Verrouillé</span>}
+                </div>
+              </div>
+              
+              {/* Contenu */}
+              <div className="flex-1">
+                <h2 className="font-bold text-xl mb-1">{course.title}</h2>
+                <p className="text-sm text-neutral-500 line-clamp-2">{course.description}</p>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-auto pt-4 border-t border-neutral-100">
+                {canAccess && (
+                  <Link 
+                    href={`/dashboard/courses/${course.slug}`}
+                    className="w-full block text-center bg-black text-white hover:bg-neutral-800 py-2 rounded-md font-medium transition-colors"
+                  >
+                    Accéder au cours
+                  </Link>
+                )}
+
+                {status === "buyable" && (
+                  <Link 
+                    href={`/checkout?course_id=${course.id}`} 
+                    className="w-full block text-center bg-orange-600 text-white hover:bg-orange-700 py-2 rounded-md font-bold transition-colors"
+                  >
+                    Acheter - {course.price ? `${course.price}€` : "Premium"}
+                  </Link>
+                )}
+
+                {status === "locked" && (
+                  <button disabled className="w-full bg-neutral-100 text-neutral-400 py-2 rounded-md font-medium cursor-not-allowed flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined text-sm">lock</span>
+                    Terminez le niveau précédent
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

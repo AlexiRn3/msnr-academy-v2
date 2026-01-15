@@ -138,19 +138,24 @@ export async function upsertLesson(formData: FormData, quizData: any) {
 
 // --- GESTION PROGRESSION (USER) ---
 
-export async function completeLesson(lessonId: string, nextLessonSlug: string | null) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+export async function completeLesson(lessonId: string, courseSlug: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-    // 1. Marquer comme terminé
-    await supabase.from("user_progress").upsert({
-        user_id: user.id,
-        lesson_id: lessonId,
-        is_completed: true
-    }, { onConflict: 'user_id, lesson_id' });
+  if (!user) return;
 
-    revalidatePath("/dashboard/courses");
-    
-    return { success: true };
+  // 1. Sauvegarder la leçon comme terminée
+  const { error } = await supabase
+    .from("user_progress")
+    .upsert(
+      { user_id: user.id, lesson_id: lessonId, is_completed: true },
+      { onConflict: "user_id, lesson_id" }
+    );
+
+  if (error) throw error;
+
+  // 2. (Optionnel) Calculer le % global du cours si vous voulez le stocker
+  // Souvent, il est plus simple de le calculer à l'affichage (voir étape suivante)
+  
+  revalidatePath(`/dashboard/courses/${courseSlug}`);
 }
